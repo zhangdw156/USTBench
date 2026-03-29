@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>USTBench — ICLR 2026</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=EB+Garamond:ital,wght@0,600;0,700;1,500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous" />
+  <style>
+    :root {
+      --brand-blue: #003978;
+      --brand-blue-mid: #0a4d8c;
+      --brand-gold: #b7922a;
+      --brand-gold-bright: #d4b44a;
+      --bg: #f5f8fc;
+      --ink: #141820;
+      --muted: #4a5568;
+      --accent: var(--brand-blue);
+      --accent-soft: var(--brand-blue-mid);
+      --line: #c9b078;
+      --gold-line: var(--brand-gold);
+      --slide-title: clamp(38px, 5.2vmin, 48px);
+      --slide-text: clamp(28px, 3.5vmin, 34px);
+      --small: clamp(19px, 2.2vmin, 22px);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      background: linear-gradient(180deg, #eef3f9 0%, var(--bg) 40%, #e8eef6 100%);
+      color: var(--ink);
+      font-family: "IBM Plex Sans", system-ui, sans-serif;
+      overflow: hidden;
+    }
+    body { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100%; }
+    #deck-wrap { flex: 1; display: flex; align-items: center; justify-content: center; width: 100%; min-height: 0; padding: 0.35rem 0.5rem; }
+    #deck { position: relative; aspect-ratio: 16 / 9; width: min(96vw, calc((100vh - 52px) * 16 / 9)); max-width: 100%; max-height: calc(100vh - 52px); container-type: size; container-name: deck; }
+    .slide { position: absolute; inset: 0; display: none; flex-direction: column; justify-content: center; padding: clamp(1.25rem, 2.8vmin, 2rem) clamp(1.5rem, 3.5vmin, 2.75rem); animation: fadeIn 0.35s ease; }
+    .slide.active { display: flex; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    .slide-inner { border: 2px solid var(--brand-blue); background: linear-gradient(155deg, #ffffff 0%, #f7f9fd 45%, #eef3fa 100%); box-shadow: inset 0 0 0 1px var(--brand-gold), 0 12px 40px rgba(0, 57, 120, 0.1); border-radius: 2px; padding: clamp(1.5rem, 3vmin, 2.25rem) clamp(1.75rem, 3.5vmin, 2.5rem); min-height: 100%; height: 100%; display: flex; flex-direction: column; }
+    .slide-title { font-family: "EB Garamond", "Georgia", serif; font-size: var(--slide-title); font-weight: 700; color: var(--accent); letter-spacing: -0.02em; line-height: 1.15; margin-bottom: clamp(0.75rem, 2vmin, 1.25rem); border-bottom: 3px solid var(--brand-gold); padding-bottom: 0.45rem; box-shadow: 0 1px 0 0 var(--brand-blue); }
+    .slide-body { font-size: var(--slide-text); font-weight: 400; line-height: 1.45; color: var(--ink); flex: 1; }
+    .slide-body ul { list-style: none; padding: 0; }
+    .slide-body li { position: relative; padding-left: 1.35em; margin-bottom: 0.55em; }
+    .slide-body li::before { content: "—"; position: absolute; left: 0; color: var(--brand-gold); font-weight: 600; }
+    .slide-body .sub-list { margin-top: 0.35rem; padding-left: 1.2rem; font-size: calc(var(--slide-text) * 0.88); color: var(--muted); }
+    .slide-body .sub-list li { padding-left: 0; margin-bottom: 0.3em; }
+    .slide-body .sub-list li::before { content: "·"; color: var(--brand-gold); font-weight: 700; }
+    .muted { color: var(--muted); font-size: var(--small); font-weight: 400; }
+    .slide-body .katex, .slide-inner .katex { font-size: 1em; }
+    .title-slide .slide-inner { text-align: center; justify-content: center; align-items: center; position: relative; padding-top: clamp(3.5rem, 9vmin, 5rem); }
+    .title-slide .title-logo-wrap { position: absolute; top: clamp(0.65rem, 1.8vmin, 1.1rem); left: 50%; transform: translateX(-50%); width: min(88%, 520px); display: flex; justify-content: center; align-items: center; padding-bottom: 0.35rem; border-bottom: 2px solid var(--brand-gold); box-shadow: 0 2px 0 0 var(--brand-blue); }
+    .title-slide .title-logo { display: block; max-height: min(11vh, 88px); width: auto; max-width: 100%; object-fit: contain; }
+    .title-slide .paper-title { font-family: "EB Garamond", Georgia, serif; font-size: clamp(52px, 8vmin, 72px); font-weight: 700; color: var(--accent); max-width: 22ch; line-height: 1.1; margin-bottom: 0.85rem; }
+    .title-slide .venue { font-size: clamp(28px, 3.6vmin, 38px); color: var(--muted); font-weight: 500; margin-bottom: 2rem; }
+    .title-slide .full-title { font-family: "EB Garamond", Georgia, serif; font-size: clamp(30px, 4.2vmin, 42px); font-weight: 600; color: var(--ink); max-width: 38ch; line-height: 1.22; margin-bottom: 1rem; }
+    .title-slide .authors { font-size: clamp(22px, 2.6vmin, 28px); color: var(--ink); line-height: 1.5; max-width: 42rem; }
+    .figure-block { margin-top: 1rem; flex: 1; display: flex; flex-direction: column; min-height: 0; }
+    .figure-block img { width: 100%; max-height: 58vh; max-height: min(52cqh, 58vh); object-fit: contain; object-position: top center; }
+    .figure-block.tall img { max-height: 64vh; max-height: min(58cqh, 64vh); }
+    .slide-motivation .figure-block.tall img { max-height: 56vh; max-height: min(50cqh, 56vh); }
+    .slide-contributions .figure-block img { max-height: 50vh; max-height: min(44cqh, 50vh); }
+    .caption { font-size: var(--small); color: var(--muted); margin-top: 0.5rem; font-style: italic; }
+    .slide-bench .slide-body { flex: 1; display: flex; flex-direction: column; justify-content: center; min-height: 0; gap: 0.5rem; }
+    .slide-bench .slide-body, .slide-bench-build .slide-body, .slide-bench-ex .slide-body, .slide-e2e .slide-body { font-size: var(--slide-text); }
+    .slide-bench .slide-body .muted, .slide-bench-build .slide-body .muted, .slide-bench-ex .slide-body .muted, .slide-e2e .slide-body .muted { font-size: calc(var(--slide-text) * 0.92); }
+    .bench-overview-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem; margin-top: 0.4rem; align-items: stretch; }
+    .bench-stat { border: 1px solid var(--line); background: #fff; padding: 0.5rem 0.6rem; border-radius: 2px; display: flex; align-items: flex-start; gap: 0.5rem; opacity: 0; transform: translateY(6px); animation: benchStatIn 0.5s ease forwards; animation-play-state: paused; }
+    .slide.active .bench-stat { animation-play-state: running; }
+    .bench-stat:nth-child(1) { animation-delay: 0.05s; }
+    .bench-stat:nth-child(2) { animation-delay: 0.12s; }
+    .bench-stat:nth-child(3) { animation-delay: 0.19s; }
+    .bench-stat:nth-child(4) { animation-delay: 0.26s; }
+    @keyframes benchStatIn { to { opacity: 1; transform: translateY(0); } }
+    .bench-stat .b-ico { width: 36px; height: 36px; color: var(--accent); flex-shrink: 0; }
+    .bench-stat .b-ico svg { width: 100%; height: 100%; }
+    .bench-stat p { font-size: calc(var(--slide-text) * 0.96); line-height: 1.4; margin: 0; }
+    .bench-split-bar { margin-top: 0.45rem; padding: 0.35rem 0.5rem; background: rgba(0, 57, 120, 0.06); border-left: 3px solid var(--accent); font-size: calc(var(--slide-text) * 0.94); }
+    .two-fig { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; align-items: start; }
+    .two-fig img { max-height: 48vh; max-height: min(44cqh, 48vh); width: 100%; object-fit: contain; }
+    .two-fig--stack { display: flex; flex-direction: column; gap: 0.55rem; width: 100%; align-items: stretch; }
+    .two-fig--stack .fig-item { display: flex; flex-direction: column; align-items: center; min-height: 0; }
+    .two-fig--stack img { width: 100%; max-height: 48vh; max-height: min(40cqh, 50vh); object-fit: contain; }
+    .slide-findings-2 .two-fig--stack img { max-height: 32vh; max-height: min(24cqh, 34vh); }
+    .two-fig--stack .caption { margin-top: 0.35rem; font-size: var(--small); }
+    .slide-findings-2 .slide-title { margin-bottom: 0.45rem; padding-bottom: 0.35rem; }
+    .slide-findings-2 .slide-body > ul { margin-bottom: 0.25rem; }
+    .slide-findings-2 .slide-body li { margin-bottom: 0.35em; }
+    .slide-findings-2 .slide-body { display: flex; flex-direction: column; min-height: 0; }
+    .slide-findings-2 .figure-block { margin-top: 0.5rem; flex: 1; min-height: 0; }
+    .slide-findings-2 .two-fig--stack { flex: 1; justify-content: space-evenly; }
+    @media (max-width: 768px) { .two-fig:not(.two-fig--stack) { grid-template-columns: 1fr; } }
+    @media (max-width: 820px) { .bench-overview-grid { grid-template-columns: 1fr; } }
+    #controls { position: fixed; bottom: 1rem; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 1rem; font-size: 14px; color: var(--brand-blue); z-index: 10; background: rgba(255, 255, 255, 0.94); padding: 0.35rem 0.85rem; border-radius: 999px; border: 1px solid var(--brand-gold); box-shadow: 0 0 0 1px var(--brand-blue); }
+    #controls kbd { font-family: inherit; padding: 0.1rem 0.35rem; border: 1px solid var(--brand-gold); border-radius: 4px; background: #fafcff; color: var(--brand-blue); }
+    #progress-bar { position: fixed; top: 0; left: 0; height: 4px; background: linear-gradient(90deg, var(--brand-gold-bright), var(--brand-blue)); transition: width 0.25s ease; z-index: 20; }
+  </style>
+</head>
+<body>
+  <div id="progress-bar"></div>
+  <div id="deck-wrap">
+  <div id="deck">
+
+    <!-- Slide 1: Title -->
+    <section class="slide title-slide active" data-i="0">
+      <div class="slide-inner">
+        <div class="title-logo-wrap">
+          <img class="title-logo" src="src/hkust.png" alt="HKUST (Guangzhou)" />
+        </div>
+        <h1 class="paper-title">USTBench</h1>
+        <p class="full-title">Benchmarking and dissecting spatiotemporal reasoning capabilities of LLMs as urban agents</p>
+        <p class="venue">ICLR 2026</p>
+        <p class="authors"><span class="muted">Siqi Lai · Yansong Ning · Zirui Yuan · Zhixi Chen · Hao Liu <br>— HKUST (Guangzhou)</span></p>
+      </div>
+    </section>
+
+    <!-- Slide 2: Motivation -->
+    <section class="slide slide-motivation" data-i="1">
+      <div class="slide-inner">
+        <h2 class="slide-title">Motivation</h2>
+        <div class="slide-body">
+          <ul>
+            <li>Outcome-only scores miss flawed intermediate reasoning.</li>
+            <li>Prior urban benchmarks rarely test process or reflection.</li>
+            <li>We jointly evaluate reasoning QA and full tasks.</li>
+          </ul>
+          <div class="figure-block tall">
+            <img src="src/llama_vs_deepseek_graph.png" alt="Outcome vs process comparison" />
+            <p class="caption">Outcome metrics can disagree with process-level diagnosis.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 3: Contributions -->
+    <section class="slide slide-contributions" data-i="2">
+      <div class="slide-inner">
+        <h2 class="slide-title">Contributions</h2>
+        <div class="slide-body">
+          <ul>
+            <li><strong>USTBench</strong> — four reasoning dimensions with 62k+ structured QAs.</li>
+            <li><strong>UAgentEnv</strong> — unified interactive environment for nine real urban tasks (OSM, traffic, mobility, socio-economics, POI).</li>
+            <li><strong>Empirical study</strong> — 14 LLMs; planning and reflection lag; general "reasoning" models not uniformly best.</li>
+          </ul>
+          <div class="figure-block">
+            <img src="src/archi.png" alt="UAgentEnv workflow" />
+            <p class="caption">Unified pipeline for perception, reasoning, and reflection.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 4: USTBench Overview -->
+    <section class="slide slide-bench" data-i="3">
+      <div class="slide-inner">
+        <h2 class="slide-title">USTBench — what we measure</h2>
+        <div class="slide-body">
+          <p class="muted" style="margin-bottom:0.35rem;">Process-level QA (diagnostics) <em>and</em> separate <strong>end-to-end</strong> evaluation on the same nine UAgentEnv tasks.</p>
+          <div class="bench-overview-grid">
+            <div class="bench-stat">
+              <div class="b-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><path d="M8 7h8M8 11h3"/></svg></div>
+              <p><strong>62,466</strong> structured QA pairs across nine urban tasks.</p>
+            </div>
+            <div class="bench-stat">
+              <div class="b-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4"/></svg></div>
+              <p>Four abilities: <strong>understand→forecast→plan→reflect</strong> (full interaction loop).</p>
+            </div>
+            <div class="bench-stat">
+              <div class="b-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4"/><path d="M14 14h6v6h-6"/></svg></div>
+              <p><strong>~40%</strong> spatiotemporal understanding · <strong>~60%</strong> higher-level reasoning.</p>
+            </div>
+            <div class="bench-stat">
+              <div class="b-ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></div>
+              <p>Process QA scored by <strong>accuracy</strong>; end-to-end uses task-specific metrics (MAPE, accuracy, service access, ecology, cost, …).</p>
+            </div>
+          </div>
+          <div class="bench-split-bar">Unlike outcome-only benchmarks, USTBench diagnoses <em>where</em> reasoning fails in the loop.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 5: Key Findings I -->
+    <section class="slide" data-i="4">
+      <div class="slide-inner">
+        <h2 class="slide-title">Key findings (I)</h2>
+        <div class="slide-body">
+          <ul>
+            <li>General reasoning training does not guarantee strong urban ST reasoning.</li>
+            <li>Forecasting often reaches high accuracy; planning remains much harder.</li>
+            <li>Post-training on spatiotemporal understanding improves forecast and planning.</li>
+          </ul>
+          <div class="figure-block">
+            <img src="src/qwen-st.png" alt="Effect of spatiotemporal understanding post-training" />
+            <p class="caption">Targeted ST understanding training transfers to downstream reasoning.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 6: Key Findings II -->
+    <section class="slide slide-findings-2" data-i="5">
+      <div class="slide-inner">
+        <h2 class="slide-title">Key findings (II)</h2>
+        <div class="slide-body">
+          <ul>
+            <li>Reflection accuracy is often below 50%; integration of feedback remains brittle.</li>
+            <li>Ablations: strong models rely on understanding, forecasting, and reflection; weak chains hurt weak models.</li>
+          </ul>
+          <div class="figure-block">
+            <div class="two-fig two-fig--stack">
+              <div class="fig-item">
+                <img src="src/reflection_analysis.png" alt="Reflection error analysis" />
+                <p class="caption">Reflection: error types and faithfulness.</p>
+              </div>
+              <div class="fig-item">
+                <img src="src/ability_ablation.png" alt="Ability ablation" />
+                <p class="caption">Removing reasoning modules hurts capable agents most.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Slide 7: Conclusion -->
+    <section class="slide" data-i="6">
+      <div class="slide-inner">
+        <h2 class="slide-title">Conclusion</h2>
+        <div class="slide-body">
+          <ul>
+            <li>USTBench couples process QA with end-to-end urban evaluation.</li>
+            <li>Open challenges: long-horizon planning, reflection, domain-specialized adaptation.</li>
+            <li>Limits: evaluation-centric scope; simulated decisions; broader agent skills future work.</li>
+          </ul>
+          <p class="muted" style="margin-top:1.25rem;"><strong>Code &amp; data:</strong> <a href="https://github.com/usail-hkust/USTBench" style="color:var(--accent-soft);">github.com/usail-hkust/USTBench</a></p>
+          <p style="margin-top:1.5rem;font-size:var(--slide-text);color:var(--accent);font-weight:600;">Thank you — questions?</p>
+        </div>
+      </div>
+    </section>
+
+  </div>
+  </div>
+
+  <div id="controls" aria-live="polite">
+    <span><kbd>←</kbd> <kbd>→</kbd></span>
+    <span id="slide-num">1 / 7</span>
+  </div>
+
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" crossorigin="anonymous"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" crossorigin="anonymous"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      var deck = document.getElementById("deck");
+      if (deck && typeof renderMathInElement === "function") {
+        renderMathInElement(deck, {
+          delimiters: [
+            { left: "$$", right: "$$", display: true },
+            { left: "\[", right: "\]", display: true },
+            { left: "\(", right: "\)", display: false },
+            { left: "$", right: "$", display: false }
+          ],
+          ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code"],
+          throwOnError: false
+        });
+      }
+    });
+  </script>
+  <script>
+    (function () {
+      const slides = Array.from(document.querySelectorAll(".slide"));
+      let idx = 0;
+
+      function show(n) {
+        idx = Math.max(0, Math.min(slides.length - 1, n));
+        slides.forEach((s, i) => s.classList.toggle("active", i === idx));
+        document.getElementById("slide-num").textContent = idx + 1 + " / " + slides.length;
+        document.getElementById("progress-bar").style.width = ((idx + 1) / slides.length) * 100 + "%";
+      }
+
+      document.addEventListener("keydown", function (e) {
+        if (e.key === "ArrowRight" || e.key === " " || e.key === "PageDown") { e.preventDefault(); show(idx + 1); }
+        else if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); show(idx - 1); }
+        else if (e.key === "Home") show(0);
+        else if (e.key === "End") show(slides.length - 1);
+      });
+
+      document.addEventListener("click", function (e) {
+        if (e.target.closest("a")) return;
+        const w = window.innerWidth;
+        if (e.clientX > w / 2) show(idx + 1);
+        else show(idx - 1);
+      });
+
+      show(0);
+    })();
+  </script>
+</body>
+</html>
