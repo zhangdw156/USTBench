@@ -6,17 +6,16 @@ set -euo pipefail
 # Default behavior:
 #   1. Download zhangdw/USTBench-ST-Planning-10pct from Hugging Face via `uv run hf` into a stable temporary cache.
 #   2. Copy its USTBench-compatible question_answering/Data tree into
-#      UST_tasks/question_answering/Data, which is the path read by
-#      the USTBench QA evaluators.
+#      data/, which is the default path read by the lightweight QA evaluator.
 #
 # The target directory is protected by default. Use --force to replace an
-# existing UST_tasks/question_answering/Data directory.
+# existing data/ directory.
 
 DATASET_REPO="zhangdw/USTBench-ST-Planning-10pct"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 DOWNLOAD_DIR=""
-TARGET_DIR="${REPO_ROOT}/UST_tasks/question_answering/Data"
+TARGET_DIR="${REPO_ROOT}/data"
 FORCE=0
 DEFAULT_DOWNLOAD_DIR=1
 
@@ -52,8 +51,8 @@ Examples:
   bash scripts/prepare_eval_data.sh --repo zhangdw/USTBench-ST-Planning-10pct
 
 After running, QA evaluation can read files like:
-  UST_tasks/question_answering/Data/urban_planning/planning_QA.json
-  UST_tasks/question_answering/Data/congestion_prediction/st_understanding_QA.json
+  data/urban_planning/planning_QA.json
+  data/congestion_prediction/st_understanding_QA.json
 EOF
 }
 

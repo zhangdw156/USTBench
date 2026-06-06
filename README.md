@@ -33,7 +33,7 @@ cache under `${TMPDIR:-/tmp}/ustbench-data/` for resumable re-runs, and installs
 only the USTBench-compatible QA tree into:
 
 ```text
-UST_tasks/question_answering/Data
+data/
 ```
 
 Use another Hugging Face dataset repo if needed:
@@ -54,10 +54,18 @@ uv run python scripts/evaluate_qa_vllm.py \
 ```
 
 `--tasks auto` is the default: the evaluator discovers task folders present in
-`UST_tasks/question_answering/Data`. Results are written to:
+`data/`. Results are written to:
 
 ```text
-UST_tasks/question_answering/logs_vllm/
+results/
+```
+
+`results/` is git-ignored. To publish local results to the Hugging Face bucket
+`zhangdw/leo-benchmark` under `USTBench/results`, run:
+
+```bash
+bash scripts/sync_results_to_hf.sh --dry-run
+bash scripts/sync_results_to_hf.sh
 ```
 
 The original full-benchmark dependency list remains in `requirements.txt`, but

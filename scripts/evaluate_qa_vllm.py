@@ -9,7 +9,7 @@ runner. It only targets the lightweight workflow used by this fork:
 3. `uv run python scripts/evaluate_qa_vllm.py --model <served-model-name>`
 
 The default dataset split is `st_understanding,planning`. By default, tasks are
-discovered from `UST_tasks/question_answering/Data`, so a customized Hugging Face
+discovered from `data/`, so a customized Hugging Face
 dataset can include only the task folders you want to evaluate.
 
 Example for a local vLLM OpenAI-compatible server:
@@ -38,8 +38,8 @@ from openai import OpenAI
 from tqdm import tqdm
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_DATA_DIR = REPO_ROOT / "UST_tasks" / "question_answering" / "Data"
-DEFAULT_OUTPUT_DIR = REPO_ROOT / "UST_tasks" / "question_answering" / "logs_vllm"
+DEFAULT_DATA_DIR = REPO_ROOT / "data"
+DEFAULT_OUTPUT_DIR = REPO_ROOT / "results"
 DEFAULT_SYSTEM_PROMPT = REPO_ROOT / "prompts" / "system_prompt.json"
 STRUCTURED_DATASETS = {"st_understanding", "planning"}
 
@@ -398,7 +398,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model", default=os.getenv("VLLM_MODEL"), help="vLLM served model name. Defaults to VLLM_MODEL.")
     parser.add_argument("--base-url", default=os.getenv("OPENAI_BASE_URL", "http://127.0.0.1:8000/v1"), help="OpenAI-compatible base URL. CLI value overrides OPENAI_BASE_URL.")
     parser.add_argument("--api-key", default=os.getenv("OPENAI_API_KEY", "EMPTY"), help="API key for the OpenAI-compatible server. CLI value overrides OPENAI_API_KEY.")
-    parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR, help="USTBench question_answering/Data directory.")
+    parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR, help="Installed QA data directory.")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR, help="Directory for per-sample outputs and summary metrics.")
     parser.add_argument("--tasks", default="auto", help='Comma-separated task list, or "auto" to discover available task folders.')
     parser.add_argument("--datasets", default="st_understanding,planning", help="Comma-separated QA subsets to evaluate.")
