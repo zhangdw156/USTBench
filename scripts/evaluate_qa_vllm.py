@@ -126,6 +126,14 @@ def sample_prompt(sample: dict[str, Any]) -> str:
     return str(sample["question"])
 
 
+def final_response_segment(text: str) -> str:
+    """Return the final answer segment after the last closing think tag."""
+    match = re.search(r"</think>", text, flags=re.IGNORECASE)
+    if not match:
+        return text
+    return re.split(r"</think>", text, flags=re.IGNORECASE)[-1]
+
+
 def extract_json_object(text: str) -> Any | None:
     fenced = re.findall(r"```(?:json|JSON)?\s*(.*?)```", text, flags=re.DOTALL)
     candidates = list(reversed(fenced)) + [text]
@@ -153,6 +161,7 @@ def extract_tagged_answers(text: str) -> list[str]:
 
 
 def parse_model_answer(text: str, dataset: str) -> Any | None:
+    text = final_response_segment(text)
     tagged_answers = extract_tagged_answers(text)
     if dataset == "st_understanding" and tagged_answers:
         return tagged_answers[0] if len(tagged_answers) == 1 else tagged_answers
