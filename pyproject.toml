@@ -1,0 +1,14 @@
+[project]
+name = "ustbench-vllm-eval"
+version = "0.1.0"
+description = "Lightweight USTBench QA evaluator for OpenAI-compatible vLLM services."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "huggingface-hub>=0.27.1",
+  "openai>=1.52.2",
+  "tqdm>=4.66.0",
+]
+
+[tool.uv]
+package = false

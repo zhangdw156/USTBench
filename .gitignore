@@ -1,2 +1,15 @@
 .idea
 .DS_Store
+
+# Local evaluation data/cache
+external_data/
+UST_tasks/question_answering/Data/
+
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+
+# Local evaluation outputs
+UST_tasks/question_answering/logs/
+UST_tasks/question_answering/logs_vllm/

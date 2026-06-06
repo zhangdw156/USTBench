@@ -14,38 +14,60 @@ This benchmark provides a comprehensive evaluation framework for large language 
 
 ---
 
-## 🔧 Installation (Python 3.10)
+## 🔧 Lightweight vLLM QA workflow with uv
+
+This fork is optimized for evaluating only the USTBench question-answering subsets
+`st_understanding` and `planning` against an already deployed OpenAI-compatible
+vLLM service. The uv environment intentionally excludes local model inference,
+PyTorch, Transformers, CityFlow, geospatial downstream-task dependencies, and
+W&B.
 
 ```bash
-# Step 1: Install PyTorch and related packages
-pip install torch==2.5.1 torchaudio==2.5.1 torchvision==0.20.1
-
-# Step 2: Install other dependencies
-pip install -r requirements.txt
-
-# Step 3: Install CityFlow for traffic simulation
-conda install -c conda-forge cmake
-pip install ./CityFlow
+uv sync
+bash scripts/prepare_eval_data.sh
 ```
 
-## Dataset Download
-Download the datasets from [Huggingface](https://huggingface.co/datasets/Haruto2099/USTBench-Dataset/) then copy them to the `UST_tasks` folder:
+By default, `scripts/prepare_eval_data.sh` downloads the customized dataset
+`zhangdw/USTBench-ST-Planning-10pct` with `uv run hf download`, keeps a stable
+cache under `${TMPDIR:-/tmp}/ustbench-data/` for resumable re-runs, and installs
+only the USTBench-compatible QA tree into:
+
+```text
+UST_tasks/question_answering/Data
+```
+
+Use another Hugging Face dataset repo if needed:
+
 ```bash
-cp -r /path/to/dataset/question_answering/Data /path/to/USTBench/UST_tasks/question_answering/
-cp -r /path/to/dataset/congestion_prediction/Data /path/to/USTBench/UST_tasks/congestion_prediction/
-cp -r /path/to/dataset/next_poi_prediction/Data /path/to/USTBench/UST_tasks/next_poi_prediction/
-cp -r /path/to/dataset/traffic_signal_control/Data /path/to/USTBench/UST_tasks/traffic_signal_control/
-cp -r /path/to/dataset/poi_placement/Data /path/to/USTBench/UST_tasks/poi_placement/
-cp -r /path/to/dataset/road_planning/Data /path/to/USTBench/UST_tasks/road_planning/
-cp -r /path/to/dataset/route_planning/Data /path/to/USTBench/UST_tasks/route_planning/
-cp -r /path/to/dataset/urban_planning/Data /path/to/USTBench/UST_tasks/urban_planning/
-cp -r /path/to/dataset/traffic_od_prediction/Data /path/to/USTBench/UST_tasks/traffic_od_prediction/
-cp -r /path/to/dataset/socio_economic_prediction/Data /path/to/USTBench/UST_tasks/socio_economic_prediction/
+bash scripts/prepare_eval_data.sh --repo <user-or-org>/<dataset-repo> --force
 ```
+
+Then evaluate a vLLM-served model:
+
+```bash
+uv run python scripts/evaluate_qa_vllm.py \
+  --model <served-model-name> \
+  --base-url http://127.0.0.1:8000/v1 \
+  --api-key EMPTY \
+  --datasets "st_understanding,planning" \
+  --batch-size 32
+```
+
+`--tasks auto` is the default: the evaluator discovers task folders present in
+`UST_tasks/question_answering/Data`. Results are written to:
+
+```text
+UST_tasks/question_answering/logs_vllm/
+```
+
+The original full-benchmark dependency list remains in `requirements.txt`, but
+it is not needed for this uv/vLLM QA workflow.
 
 ---
 
 ## 🚀 Running a Task
+
+> Note: the uv workflow maintained by this fork is the vLLM QA path above. The original full-benchmark runner below may require the legacy dependencies in `requirements.txt`.
 
 ### General Format
 
@@ -69,33 +91,20 @@ python run_UST_tasks.py --task <task_name> --help
 
 ## 🧠 Task Examples
 
-### 🎯 Process-based Reasoning Ability Evaluation QA
+### 🎯 vLLM QA evaluation
 
-Example 1: QA constructed by prediction tasks
-
-```bash
-python run_UST_tasks.py --task question_answering \
-                        --batch_size 32 \
-                        --llm_path_or_name deepseek-ai/DeepSeek-R1-Distill-Qwen-7B \
-                        --tasks "next_poi_prediction, congestion_prediction, socio_economic_prediction, traffic_od_prediction" \
-                        --datasets "st_understanding, forecasting, reflection"
-```
-
-Example 2: QA constructed by decision-making tasks
+The maintained lightweight entrypoint is:
 
 ```bash
-python run_UST_tasks.py --task question_answering \
-                        --batch_size 32 \
-                        --llm_path_or_name deepseek-ai/DeepSeek-R1-Distill-Qwen-7B \
-                        --tasks "traffic_signal_control, poi_placement, road_planning, route_planning, urban_planning" \
-                        --datasets "st_understanding, planning, reflection"
+bash ./scripts/run_spatiotemporal_reasoning_evaluation.sh \
+  --model <served-model-name> \
+  --base-url http://127.0.0.1:8000/v1 \
+  --api-key EMPTY \
+  --batch-size 32
 ```
 
-Or just run from our script for all QA tasks:
-
-```bash
-bash ./scripts/run_spatiotemporal_reasoning_evaluation.sh
-```
+This wrapper calls `scripts/evaluate_qa_vllm.py` and evaluates only
+`st_understanding` and `planning`.
 
 ---
 
