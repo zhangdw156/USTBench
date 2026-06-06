@@ -55,8 +55,11 @@ class TargetProgress:
     task: str
     dataset: str
     completed: int
+    correct: int
     total: int
     progress: float
+    accuracy_done: float | None
+    accuracy_lower_bound: float
     result_path: str | None
     result_records: int
     missing_result: bool
@@ -67,8 +70,11 @@ class TargetProgress:
 class ModelProgress:
     model: str
     completed: int
+    correct: int
     total: int
     progress: float
+    accuracy_done: float | None
+    accuracy_lower_bound: float
     completed_targets: int
     started_targets: int
     total_targets: int
@@ -137,10 +143,18 @@ def discover_models(results_dir: Path, datasets: Iterable[str]) -> list[str]:
     return sorted(models)
 
 
-def completed_count(records: Any) -> int:
+def completed_correct_count(records: Any, *, limit: int) -> tuple[int, int]:
     if not isinstance(records, list):
         raise ValueError("Result file must contain a JSON list")
-    return sum(1 for record in records if isinstance(record, dict) and record.get("decision") is not None)
+    completed = 0
+    correct = 0
+    for record in records[:limit]:
+        if not isinstance(record, dict) or record.get("decision") is None:
+            continue
+        completed += 1
+        if record.get("is_correct") is True:
+            correct += 1
+    return completed, correct
 
 
 def find_result_path(results_dir: Path, model: str, target: EvalTarget) -> Path:
@@ -157,6 +171,7 @@ def find_result_path(results_dir: Path, model: str, target: EvalTarget) -> Path:
 def progress_for_model(model: str, targets: list[EvalTarget], results_dir: Path) -> ModelProgress:
     target_progress: list[TargetProgress] = []
     completed_total = 0
+    correct_total = 0
     question_total = 0
     completed_targets = 0
     started_targets = 0
@@ -166,6 +181,7 @@ def progress_for_model(model: str, targets: list[EvalTarget], results_dir: Path)
         missing_result = not result_path.exists()
         result_records = 0
         completed = 0
+        correct = 0
         length_mismatch = False
 
         if not missing_result:
@@ -173,12 +189,13 @@ def progress_for_model(model: str, targets: list[EvalTarget], results_dir: Path)
             if not isinstance(records, list):
                 raise ValueError(f"Expected a JSON list: {result_path}")
             result_records = len(records)
-            completed = min(completed_count(records), target.num_questions)
+            completed, correct = completed_correct_count(records, limit=target.num_questions)
             length_mismatch = result_records != target.num_questions
             started_targets += 1
 
         question_total += target.num_questions
         completed_total += completed
+        correct_total += correct
         if completed >= target.num_questions:
             completed_targets += 1
 
@@ -187,8 +204,11 @@ def progress_for_model(model: str, targets: list[EvalTarget], results_dir: Path)
                 task=target.task,
                 dataset=target.dataset,
                 completed=completed,
+                correct=correct,
                 total=target.num_questions,
                 progress=completed / target.num_questions if target.num_questions else 0.0,
+                accuracy_done=correct / completed if completed else None,
+                accuracy_lower_bound=correct / target.num_questions if target.num_questions else 0.0,
                 result_path=str(result_path) if not missing_result else None,
                 result_records=result_records,
                 missing_result=missing_result,
@@ -199,8 +219,11 @@ def progress_for_model(model: str, targets: list[EvalTarget], results_dir: Path)
     return ModelProgress(
         model=model,
         completed=completed_total,
+        correct=correct_total,
         total=question_total,
         progress=completed_total / question_total if question_total else 0.0,
+        accuracy_done=correct_total / completed_total if completed_total else None,
+        accuracy_lower_bound=correct_total / question_total if question_total else 0.0,
         completed_targets=completed_targets,
         started_targets=started_targets,
         total_targets=len(targets),
@@ -210,6 +233,22 @@ def progress_for_model(model: str, targets: list[EvalTarget], results_dir: Path)
 
 def format_pct(value: float) -> str:
     return f"{value * 100:.2f}%"
+
+
+def format_optional_pct(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    return format_pct(value)
+
+
+def accuracy_style(value: float | None) -> str:
+    if value is None:
+        return "dim"
+    if value >= 0.8:
+        return "green"
+    if value >= 0.5:
+        return "yellow"
+    return "red"
 
 
 def ratio_text(completed: int, total: int) -> str:
@@ -264,6 +303,9 @@ def render_summary(console: Console, model_progress: list[ModelProgress], *, dat
     table.add_column("Progress", justify="right", no_wrap=True)
     table.add_column("Bar", min_width=20)
     table.add_column("Samples", justify="right", no_wrap=True)
+    table.add_column("Acc(done)", justify="right", no_wrap=True)
+    table.add_column("Acc(lb)", justify="right", no_wrap=True)
+    table.add_column("Correct", justify="right", no_wrap=True)
     table.add_column("Targets", justify="right", no_wrap=True)
 
     for item in model_progress:
@@ -277,6 +319,9 @@ def render_summary(console: Console, model_progress: list[ModelProgress], *, dat
             Text(format_pct(item.progress), style=style),
             ProgressBar(total=1.0, completed=item.progress, width=24, complete_style=style),
             ratio_text(item.completed, item.total),
+            Text(format_optional_pct(item.accuracy_done), style=accuracy_style(item.accuracy_done)),
+            Text(format_pct(item.accuracy_lower_bound), style=accuracy_style(item.accuracy_lower_bound)),
+            ratio_text(item.correct, item.completed) if item.completed else "0/0",
             targets_text,
         )
     console.print(table)
@@ -292,6 +337,8 @@ def render_targets(console: Console, model_progress: list[ModelProgress], *, sho
         table.add_column("Dataset", no_wrap=True)
         table.add_column("Samples", justify="right", no_wrap=True)
         table.add_column("Progress", justify="right", no_wrap=True)
+        table.add_column("Acc(done)", justify="right", no_wrap=True)
+        table.add_column("Correct", justify="right", no_wrap=True)
         table.add_column("Status")
 
         for target in item.targets:
@@ -301,9 +348,16 @@ def render_targets(console: Console, model_progress: list[ModelProgress], *, sho
                 target.dataset,
                 ratio_text(target.completed, target.total),
                 Text(format_pct(target.progress), style=style),
+                Text(format_optional_pct(target.accuracy_done), style=accuracy_style(target.accuracy_done)),
+                ratio_text(target.correct, target.completed) if target.completed else "0/0",
                 status_text(target),
             )
         console.print(table)
+
+
+def make_console() -> Console:
+    probe = Console()
+    return Console(width=max(probe.size.width, 120))
 
 
 def print_report(
@@ -315,7 +369,7 @@ def print_report(
     total_questions: int,
     show_targets: bool,
 ) -> None:
-    console = Console()
+    console = make_console()
     render_summary(
         console,
         model_progress,
