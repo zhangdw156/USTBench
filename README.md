@@ -60,6 +60,13 @@ uv run python scripts/evaluate_qa_vllm.py \
 results/
 ```
 
+The evaluator supports automatic checkpoint/resume by default. For each
+task/dataset target it writes the per-sample response file incrementally under
+`results/<task>/<model>_<dataset>_QA.json`; if the process is interrupted, rerun
+the same command and already completed samples with a parsed `decision` are
+skipped. Use `--no-resume` or `--overwrite` to force a fresh run, and
+`--checkpoint-every N` to reduce checkpoint frequency.
+
 `results/` is git-ignored. To publish local results to the Hugging Face bucket
 `zhangdw/leo-benchmark` under `USTBench/results`, run:
 

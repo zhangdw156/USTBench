@@ -32,7 +32,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Callable, Iterable
 
 from openai import OpenAI
 from tqdm import tqdm
@@ -67,8 +67,67 @@ def load_json(path: Path) -> Any:
 
 def dump_json(data: Any, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as f:
+    tmp_path = path.with_name(f".{path.name}.tmp.{os.getpid()}")
+    with tmp_path.open("w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
+        f.write("\n")
+    os.replace(tmp_path, path)
+
+
+EVAL_FIELDS = {"reasoning", "decision", "is_correct", "error"}
+
+
+def empty_answer_record(sample: dict[str, Any]) -> dict[str, Any]:
+    return dict(sample, reasoning=None, decision=None, is_correct=False, error=None)
+
+
+def source_sample(record: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in record.items() if key not in EVAL_FIELDS}
+
+
+def sample_signature(record: dict[str, Any]) -> str:
+    return json.dumps(source_sample(record), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
+def is_completed_record(record: dict[str, Any]) -> bool:
+    return record.get("decision") is not None
+
+
+def merge_resumed_record(sample: dict[str, Any], previous: dict[str, Any]) -> dict[str, Any]:
+    resumed = empty_answer_record(sample)
+    for field in EVAL_FIELDS:
+        if field in previous:
+            resumed[field] = previous[field]
+    if resumed.get("decision") is not None:
+        resumed["is_correct"] = answers_equal(resumed["decision"], sample.get("answer"))
+        resumed["error"] = None
+    return resumed
+
+
+def load_resume_checkpoint(result_path: Path, samples: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
+    answered = [empty_answer_record(sample) for sample in samples]
+    if not result_path.exists():
+        return answered, 0
+
+    previous = load_json(result_path)
+    if not isinstance(previous, list):
+        raise ValueError(f"Resume checkpoint must be a JSON list: {result_path}")
+
+    resumed_count = 0
+    for idx, sample in enumerate(samples):
+        if idx >= len(previous):
+            continue
+        previous_record = previous[idx]
+        if not isinstance(previous_record, dict):
+            continue
+        if not is_completed_record(previous_record):
+            continue
+        if sample_signature(previous_record) != sample_signature(sample):
+            continue
+        answered[idx] = merge_resumed_record(sample, previous_record)
+        resumed_count += 1
+
+    return answered, resumed_count
 
 
 def load_system_prompt(path: Path) -> str:
@@ -285,54 +344,76 @@ def evaluate_samples(
     batch_size: int,
     max_retries: int,
     retry_sleep: float,
+    answered: list[dict[str, Any]] | None = None,
+    checkpoint: Callable[[list[dict[str, Any]]], None] | None = None,
+    checkpoint_every: int = 1,
 ) -> list[dict[str, Any]]:
-    answered = [dict(sample, reasoning=None, decision=None, is_correct=False, error=None) for sample in samples]
-    pending = list(range(len(samples)))
+    if answered is None:
+        answered = [empty_answer_record(sample) for sample in samples]
+    pending = [idx for idx, record in enumerate(answered) if not is_completed_record(record)]
+    updates_since_checkpoint = 0
 
-    for attempt in range(max_retries + 1):
-        if not pending:
-            break
-        next_pending: list[int] = []
-        prompts = {idx: sample_prompt(samples[idx]) for idx in pending}
-        desc = f"{dataset} attempt {attempt + 1}/{max_retries + 1}"
+    def maybe_checkpoint(*, force: bool = False) -> None:
+        nonlocal updates_since_checkpoint
+        if checkpoint is None:
+            return
+        if force or updates_since_checkpoint >= checkpoint_every:
+            checkpoint(answered)
+            updates_since_checkpoint = 0
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=batch_size) as executor:
-            future_to_idx = {
-                executor.submit(complete_with_retry, client, prompts[idx], 0, retry_sleep): idx
-                for idx in pending
-            }
-            for future in tqdm(concurrent.futures.as_completed(future_to_idx), total=len(future_to_idx), desc=desc):
-                idx = future_to_idx[future]
-                try:
-                    response, error = future.result()
-                except Exception as exc:  # pragma: no cover - defensive, future should not raise.
-                    response, error = None, repr(exc)
+    try:
+        for attempt in range(max_retries + 1):
+            if not pending:
+                break
+            next_pending: list[int] = []
+            prompts = {idx: sample_prompt(samples[idx]) for idx in pending}
+            desc = f"{dataset} attempt {attempt + 1}/{max_retries + 1}"
 
-                if response is None:
-                    answered[idx].update({"error": error or "empty response"})
-                    if attempt < max_retries:
-                        next_pending.append(idx)
-                    continue
+            with concurrent.futures.ThreadPoolExecutor(max_workers=batch_size) as executor:
+                future_to_idx = {
+                    executor.submit(complete_with_retry, client, prompts[idx], 0, retry_sleep): idx
+                    for idx in pending
+                }
+                for future in tqdm(concurrent.futures.as_completed(future_to_idx), total=len(future_to_idx), desc=desc):
+                    idx = future_to_idx[future]
+                    try:
+                        response, error = future.result()
+                    except Exception as exc:  # pragma: no cover - defensive, future should not raise.
+                        response, error = None, repr(exc)
 
-                decision = parse_model_answer(response, dataset)
-                if decision is None:
-                    answered[idx].update({"reasoning": response, "error": "failed to parse structured answer"})
-                    if attempt < max_retries:
-                        next_pending.append(idx)
-                    continue
+                    if response is None:
+                        answered[idx].update({"error": error or "empty response"})
+                        if attempt < max_retries:
+                            next_pending.append(idx)
+                        updates_since_checkpoint += 1
+                        maybe_checkpoint()
+                        continue
 
-                is_correct = answers_equal(decision, samples[idx].get("answer"))
-                answered[idx].update(
-                    {
-                        "reasoning": response,
-                        "decision": decision,
-                        "is_correct": is_correct,
-                        "error": None,
-                    }
-                )
-        pending = next_pending
-        if pending and attempt < max_retries and retry_sleep > 0:
-            time.sleep(retry_sleep)
+                    decision = parse_model_answer(response, dataset)
+                    if decision is None:
+                        answered[idx].update({"reasoning": response, "error": "failed to parse structured answer"})
+                        if attempt < max_retries:
+                            next_pending.append(idx)
+                        updates_since_checkpoint += 1
+                        maybe_checkpoint()
+                        continue
+
+                    is_correct = answers_equal(decision, samples[idx].get("answer"))
+                    answered[idx].update(
+                        {
+                            "reasoning": response,
+                            "decision": decision,
+                            "is_correct": is_correct,
+                            "error": None,
+                        }
+                    )
+                    updates_since_checkpoint += 1
+                    maybe_checkpoint()
+            pending = next_pending
+            if pending and attempt < max_retries and retry_sleep > 0:
+                time.sleep(retry_sleep)
+    finally:
+        maybe_checkpoint(force=True)
 
     return answered
 
@@ -347,6 +428,9 @@ def evaluate_target(
     limit: int | None,
     output_dir: Path,
     model_name: str,
+    resume: bool,
+    overwrite: bool,
+    checkpoint_every: int,
 ) -> dict[str, Any]:
     samples = load_json(target.path)
     if not isinstance(samples, list):
@@ -356,9 +440,28 @@ def evaluate_target(
     if not samples:
         raise ValueError(f"No samples to evaluate in {target.path}")
 
+    model_file = safe_filename(model_name)
+    result_path = output_dir / target.task / f"{model_file}_{target.dataset}_QA.json"
+
+    if resume and not overwrite:
+        answered, resumed_count = load_resume_checkpoint(result_path, samples)
+    else:
+        answered = [empty_answer_record(sample) for sample in samples]
+        resumed_count = 0
+
+    pending_count = sum(1 for record in answered if not is_completed_record(record))
+
     print(f"========================== Task: {target.task} | Dataset: {target.dataset} ==========================")
     print(f"Loaded {len(samples)} questions from {target.path}")
+    if resume and not overwrite:
+        print(f"Resume checkpoint: {result_path} ({resumed_count} completed, {pending_count} pending)")
+    elif overwrite:
+        print(f"Overwrite enabled; existing checkpoint will be ignored: {result_path}")
 
+    def checkpoint(current_answered: list[dict[str, Any]]) -> None:
+        dump_json(current_answered, result_path)
+
+    checkpoint(answered)
     answered = evaluate_samples(
         client=client,
         samples=samples,
@@ -366,6 +469,9 @@ def evaluate_target(
         batch_size=batch_size,
         max_retries=max_retries,
         retry_sleep=retry_sleep,
+        answered=answered,
+        checkpoint=checkpoint,
+        checkpoint_every=checkpoint_every,
     )
 
     total = len(answered)
@@ -380,12 +486,12 @@ def evaluate_target(
         "correct": correct,
         "accuracy": accuracy,
         "parse_failures": parse_failures,
+        "resumed": resumed_count,
+        "pending_at_start": pending_count,
     }
     if target.dataset == "st_understanding":
         metrics["spatial_temporal_results"] = relation_metrics(answered)
 
-    model_file = safe_filename(model_name)
-    result_path = output_dir / target.task / f"{model_file}_{target.dataset}_QA.json"
     dump_json(answered, result_path)
     metrics["result_path"] = str(result_path)
     print(f"Accuracy: {correct}/{total} = {accuracy:.4f}; parse_failures={parse_failures}")
@@ -410,6 +516,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-retries", type=int, default=2, help="Retries for API errors or unparsable structured answers.")
     parser.add_argument("--retry-sleep", type=float, default=2.0, help="Seconds to sleep between service retries.")
     parser.add_argument("--limit", type=int, default=None, help="Optional per-file sample limit for smoke tests.")
+    parser.add_argument(
+        "--resume",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Resume from existing per-target response checkpoints. Use --no-resume to start targets from scratch.",
+    )
+    parser.add_argument("--overwrite", action="store_true", help="Ignore existing checkpoints and overwrite them during this run.")
+    parser.add_argument(
+        "--checkpoint-every",
+        type=int,
+        default=1,
+        help="Write the per-target checkpoint after this many sample updates. Default 1 saves every completed request.",
+    )
     parser.add_argument("--system-prompt-file", type=Path, default=DEFAULT_SYSTEM_PROMPT)
     return parser
 
@@ -421,6 +540,8 @@ def main() -> None:
         parser.error("--model is required unless VLLM_MODEL is set.")
     if args.batch_size < 1:
         parser.error("--batch-size must be >= 1.")
+    if args.checkpoint_every < 1:
+        parser.error("--checkpoint-every must be >= 1.")
     datasets = comma_list(args.datasets)
     unsupported = [dataset for dataset in datasets if dataset not in STRUCTURED_DATASETS]
     if unsupported:
@@ -456,6 +577,9 @@ def main() -> None:
                 limit=args.limit,
                 output_dir=args.output_dir,
                 model_name=args.model,
+                resume=args.resume,
+                overwrite=args.overwrite,
+                checkpoint_every=args.checkpoint_every,
             )
         )
 
@@ -472,6 +596,9 @@ def main() -> None:
         "temperature": args.temperature,
         "top_p": args.top_p,
         "max_tokens": args.max_tokens,
+        "resume": args.resume,
+        "overwrite": args.overwrite,
+        "checkpoint_every": args.checkpoint_every,
         "overall": {
             "num_questions": total_questions,
             "correct": total_correct,
