@@ -29,6 +29,9 @@ import json
 import os
 import re
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,6 +45,18 @@ DEFAULT_DATA_DIR = REPO_ROOT / "data"
 DEFAULT_OUTPUT_DIR = REPO_ROOT / "results"
 DEFAULT_SYSTEM_PROMPT = REPO_ROOT / "prompts" / "system_prompt.json"
 STRUCTURED_DATASETS = {"st_understanding", "planning"}
+CONTEXT_LENGTH_KEYS = {
+    "max_model_len",
+    "max_context_len",
+    "max_context_length",
+    "context_length",
+    "model_max_length",
+    "max_position_embeddings",
+    "max_sequence_length",
+    "max_seq_len",
+    "seq_length",
+    "n_ctx",
+}
 
 
 @dataclass(frozen=True)
@@ -72,6 +87,134 @@ def dump_json(data: Any, path: Path) -> None:
         json.dump(data, f, ensure_ascii=False, indent=2)
         f.write("\n")
     os.replace(tmp_path, path)
+
+
+def positive_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+        return value if value > 0 else None
+    if isinstance(value, str) and re.fullmatch(r"\d+", value.strip()):
+        value = int(value.strip())
+        return value if value > 0 else None
+    return None
+
+
+def context_length_from_model_card(model_card: dict[str, Any]) -> int | None:
+    """Extract a model context window from common vLLM/OpenAI-compatible fields."""
+    candidates: list[int] = []
+
+    def visit(value: Any) -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                if str(key).lower() in CONTEXT_LENGTH_KEYS:
+                    candidate = positive_int(child)
+                    if candidate is not None:
+                        candidates.append(candidate)
+                if isinstance(child, (dict, list)):
+                    visit(child)
+        elif isinstance(value, list):
+            for child in value:
+                if isinstance(child, (dict, list)):
+                    visit(child)
+
+    visit(model_card)
+    return max(candidates) if candidates else None
+
+
+def model_card_identifiers(model_card: dict[str, Any]) -> list[str]:
+    identifiers = []
+    for key in ("id", "model", "name", "root"):
+        value = model_card.get(key)
+        if isinstance(value, str) and value:
+            identifiers.append(value)
+    return identifiers
+
+
+def model_name_tail(model_name: str) -> str:
+    return model_name.rstrip("/").split("/")[-1]
+
+
+def model_cards_from_response(models_response: Any) -> list[dict[str, Any]]:
+    data = models_response.get("data") if isinstance(models_response, dict) else models_response
+    if not isinstance(data, list):
+        raise ValueError("/models response must be a JSON object with a list field named 'data'.")
+    cards = [item for item in data if isinstance(item, dict)]
+    if not cards:
+        raise ValueError("/models response does not contain any model cards.")
+    return cards
+
+
+def find_model_card(models_response: Any, model: str) -> dict[str, Any]:
+    cards = model_cards_from_response(models_response)
+    exact_matches = [card for card in cards if model in model_card_identifiers(card)]
+    if exact_matches:
+        return exact_matches[0]
+
+    model_tail = model_name_tail(model)
+    tail_matches = [
+        card
+        for card in cards
+        if any(model_name_tail(identifier) == model_tail for identifier in model_card_identifiers(card))
+    ]
+    if len(tail_matches) == 1:
+        return tail_matches[0]
+
+    if len(cards) == 1:
+        return cards[0]
+
+    available = ", ".join(identifier for card in cards for identifier in model_card_identifiers(card))
+    raise ValueError(f"Could not find model {model!r} in /models response. Available models: {available}")
+
+
+def models_url_from_base_url(base_url: str) -> str:
+    return urllib.parse.urljoin(base_url.rstrip("/") + "/", "models")
+
+
+def fetch_models_response(base_url: str, api_key: str, timeout: float) -> Any:
+    url = models_url_from_base_url(base_url)
+    headers = {"Accept": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    request = urllib.request.Request(url, headers=headers, method="GET")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - user-provided endpoint.
+            body = response.read().decode("utf-8")
+    except urllib.error.URLError as exc:
+        raise ValueError(f"Failed to fetch model metadata from {url}: {exc}") from exc
+    try:
+        return json.loads(body)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Model metadata endpoint did not return valid JSON: {url}") from exc
+
+
+def resolve_max_tokens(
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    requested_max_tokens: int | None,
+    timeout: float,
+) -> tuple[int, int | None, str]:
+    if requested_max_tokens is not None:
+        if requested_max_tokens < 1:
+            raise ValueError("--max-tokens must be >= 1.")
+        return requested_max_tokens, None, "explicit"
+
+    models_response = fetch_models_response(base_url=base_url, api_key=api_key, timeout=timeout)
+    model_card = find_model_card(models_response, model)
+    context_length = context_length_from_model_card(model_card)
+    if context_length is None:
+        identifiers = ", ".join(model_card_identifiers(model_card)) or model
+        raise ValueError(
+            "Could not infer model context length from /models metadata for "
+            f"{identifiers}. Pass --max-tokens explicitly or expose one of these fields: "
+            f"{', '.join(sorted(CONTEXT_LENGTH_KEYS))}."
+        )
+    return max(1, context_length // 2), context_length, "auto:/v1/models"
 
 
 EVAL_FIELDS = {"reasoning", "decision", "is_correct", "error"}
@@ -511,7 +654,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--batch-size", type=int, default=32, help="Maximum concurrent requests to the vLLM service.")
     parser.add_argument("--temperature", type=float, default=0.0)
     parser.add_argument("--top-p", type=float, default=1.0)
-    parser.add_argument("--max-tokens", type=int, default=8192)
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=None,
+        help="Maximum generated tokens per response. Defaults to half of the served model context length from /v1/models.",
+    )
     parser.add_argument("--timeout", type=float, default=120.0, help="Per-request timeout in seconds.")
     parser.add_argument("--max-retries", type=int, default=2, help="Retries for API errors or unparsable structured answers.")
     parser.add_argument("--retry-sleep", type=float, default=2.0, help="Seconds to sleep between service retries.")
@@ -548,6 +696,16 @@ def main() -> None:
         parser.error(f"This lightweight evaluator only supports: {', '.join(sorted(STRUCTURED_DATASETS))}; got {unsupported}")
 
     targets = collect_targets(args.data_dir, args.tasks, datasets)
+    try:
+        max_tokens, model_context_length, max_tokens_source = resolve_max_tokens(
+            base_url=args.base_url,
+            api_key=args.api_key,
+            model=args.model,
+            requested_max_tokens=args.max_tokens,
+            timeout=args.timeout,
+        )
+    except ValueError as exc:
+        parser.error(str(exc))
     system_prompt = load_system_prompt(args.system_prompt_file)
     client = VllmChatClient(
         base_url=args.base_url,
@@ -556,12 +714,16 @@ def main() -> None:
         system_prompt=system_prompt,
         temperature=args.temperature,
         top_p=args.top_p,
-        max_tokens=args.max_tokens,
+        max_tokens=max_tokens,
         timeout=args.timeout,
     )
 
     print(f"Model: {args.model}")
     print(f"Base URL: {args.base_url}")
+    if model_context_length is None:
+        print(f"Max tokens: {max_tokens} ({max_tokens_source})")
+    else:
+        print(f"Max tokens: {max_tokens} ({max_tokens_source}; context={model_context_length})")
     print(f"Datasets: {', '.join(datasets)}")
     print(f"Targets: {', '.join(f'{target.task}/{target.dataset}' for target in targets)}")
 
@@ -595,7 +757,9 @@ def main() -> None:
         "batch_size": args.batch_size,
         "temperature": args.temperature,
         "top_p": args.top_p,
-        "max_tokens": args.max_tokens,
+        "max_tokens": max_tokens,
+        "max_tokens_source": max_tokens_source,
+        "model_context_length": model_context_length,
         "resume": args.resume,
         "overwrite": args.overwrite,
         "checkpoint_every": args.checkpoint_every,

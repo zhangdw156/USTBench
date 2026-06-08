@@ -53,6 +53,11 @@ uv run python scripts/evaluate_qa_vllm.py \
   --batch-size 32
 ```
 
+If `--max-tokens` is omitted, the evaluator queries the OpenAI-compatible
+`/v1/models` endpoint and uses half of the served model's reported context
+length as the per-response generation limit. Pass `--max-tokens <N>` to override
+that auto default.
+
 `--tasks auto` is the default: the evaluator discovers task folders present in
 `data/`. Results are written to:
 
